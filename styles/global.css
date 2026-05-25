@@ -1,0 +1,40 @@
+@layer utilities {
+  .glass {
+    background: rgba(22, 27, 34, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-deep-space text-gray-100;
+  }
+}
+
+@keyframes flow-horizontal {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@keyframes flow-vertical {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(300%); }
+}
+
+.animate-flow-horizontal {
+  animation: flow-horizontal 2s linear infinite;
+}
+
+.animate-flow-vertical {
+  animation: flow-vertical 2s linear infinite;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+
