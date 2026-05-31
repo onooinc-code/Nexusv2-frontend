@@ -1,18 +1,27 @@
 "use client";
 
 import React, { useRef, useState } from 'react';
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { NxGlassCard } from './NxGlassCard';
-import { User, Phone, Mail, Building } from 'lucide-react';
+import { User, Phone, Mail, Building, MessageCircle, ShieldCheck, Gauge } from 'lucide-react';
 
 export interface NxContactCard3DProps {
   contact: {
     name: string;
+    display_name?: string;
     role?: string;
     company?: string;
     email?: string;
     phone?: string;
+    whatsapp_number?: string;
     avatar?: string;
+    contact_type?: string;
+    primary_identifier?: string;
+    reply_mode_override?: string;
+    profile_confidence?: number;
+    memory_freshness?: string;
+    last_interaction_at?: string;
   };
   className?: string;
 }
@@ -65,9 +74,12 @@ export const NxContactCard3D = ({ contact, className }: NxContactCard3DProps) =>
           <div className="flex items-start gap-4 mb-4 relative z-10">
             <div className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden shrink-0 relative">
               {contact.avatar ? (
-                <img src={contact.avatar} 
-                  alt={contact.name} 
-                  className="w-full h-full object-cover" 
+                <Image
+                  src={contact.avatar}
+                  alt={contact.name}
+                  fill
+                  sizes="100%"
+                  className="object-cover" 
                   referrerPolicy="no-referrer"
                 />
               ) : (
@@ -80,6 +92,24 @@ export const NxContactCard3D = ({ contact, className }: NxContactCard3DProps) =>
             </div>
           </div>
           
+          <div className="flex flex-wrap gap-2 mb-4 relative z-10">
+            {contact.contact_type && (
+              <span className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[10px] uppercase text-gray-300">
+                {contact.contact_type}
+              </span>
+            )}
+            <span className={cn(
+              "px-2 py-1 rounded-md border text-[10px] uppercase",
+              contact.reply_mode_override === 'autopilot'
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-200"
+                : contact.reply_mode_override === 'copilot'
+                  ? "bg-nexus-blue/10 border-nexus-blue/30 text-blue-200"
+                  : "bg-white/5 border-white/10 text-gray-300"
+            )}>
+              {contact.reply_mode_override ?? 'global mode'}
+            </span>
+          </div>
+
           <div className="flex flex-col gap-2 mt-auto text-sm text-gray-400 relative z-10">
             <div className="flex items-center gap-2">
               <Building className="w-4 h-4 text-gray-500" />
@@ -92,6 +122,22 @@ export const NxContactCard3D = ({ contact, className }: NxContactCard3DProps) =>
             <div className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-gray-500" />
               <span>{contact.phone ?? ''}</span>
+            </div>
+            {contact.whatsapp_number && (
+              <div className="flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-gray-500" />
+                <span>{contact.whatsapp_number}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2 pt-2 text-[11px]">
+              <div className="flex items-center gap-1.5 text-gray-400">
+                <Gauge className="w-3.5 h-3.5 text-gray-500" />
+                {contact.profile_confidence ?? 0}% confidence
+              </div>
+              <div className="flex items-center gap-1.5 text-gray-400">
+                <ShieldCheck className="w-3.5 h-3.5 text-gray-500" />
+                {contact.memory_freshness ? 'fresh memory' : 'no memory scan'}
+              </div>
             </div>
           </div>
         </NxGlassCard>

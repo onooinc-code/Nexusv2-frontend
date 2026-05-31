@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import apiClient from '@/lib/api/client';
+import { logError, getErrorMessage } from '@/lib/utils/error-handler';
 
 import { Contact, ContactRelationship, ContactPreference, ContactAlias, ContactIdentifier } from '@/types';
 
@@ -14,6 +15,16 @@ export interface ApiContact {
   phone: string;
   avatar_url?: string;
   type?: string;
+  contact_type?: string;
+  display_name?: string;
+  alternate_name?: string;
+  gender?: string;
+  whatsapp_number?: string;
+  primary_identifier?: string;
+  reply_mode_override?: string;
+  profile_confidence?: number;
+  memory_freshness?: string;
+  last_interaction_at?: string;
   title?: string;
   is_active?: boolean;
   last_seen_at?: string;
@@ -59,6 +70,26 @@ export interface MemoryItem {
   agentName: string;
   timestamp: string;
   metaTags: string[];
+}
+
+export interface AgentPersona {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  tone_preferences?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MCPServer {
+  id: string;
+  name: string;
+  type: 'local' | 'remote';
+  status: 'online' | 'offline' | 'error' | 'connected' | 'disconnected';
+  connection_config: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Job {
@@ -143,6 +174,30 @@ export interface GlobalState {
   createWorkflow: (data: Omit<Workflow, 'id'>) => void;
   updateWorkflow: (id: string, data: Partial<Workflow>) => void;
   deleteWorkflow: (id: string) => void;
+
+  // Agents Slice
+  agents: Agent[];
+  hydrateAgents: () => Promise<void>;
+  simulateAgent: (id: string, payload: any) => Promise<any>;
+  runAgent: (id: string, payload: any) => Promise<any>;
+  quarantineAgent: (id: string, reason: string) => Promise<void>;
+  fetchAgentStatus: (id: string) => Promise<void>;
+
+  // Agent Personas Slice
+  personas: AgentPersona[];
+  hydratePersonas: () => Promise<void>;
+  createPersona: (data: Omit<AgentPersona, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
+  updatePersona: (id: string, data: Partial<AgentPersona>) => Promise<void>;
+  deletePersona: (id: string) => Promise<void>;
+
+  // MCP Servers Slice
+  mcpServers: MCPServer[];
+  hydrateMCPServers: () => Promise<void>;
+  createMCPServer: (data: Omit<MCPServer, 'id' | 'status' | 'created_at' | 'updated_at'>) => Promise<void>;
+  updateMCPServer: (id: string, data: Partial<MCPServer>) => Promise<void>;
+  deleteMCPServer: (id: string) => Promise<void>;
+  connectMCPServer: (name: string) => Promise<void>;
+  disconnectMCPServer: (name: string) => Promise<void>;
 
   // Memories Slice
   memories: MemoryItem[];
@@ -259,13 +314,24 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
         company: c.company || '',
         email: c.email || '',
         phone: c.phone || '',
+        whatsapp_number: c.whatsapp_number || '',
+        display_name: c.display_name,
+        alternate_name: c.alternate_name,
+        contact_type: c.contact_type || c.type,
+        type: c.type,
+        gender: c.gender,
+        primary_identifier: c.primary_identifier,
+        reply_mode_override: c.reply_mode_override,
+        profile_confidence: c.profile_confidence,
+        memory_freshness: c.memory_freshness,
+        last_interaction_at: c.last_interaction_at,
         avatar: c.avatar_url,
         created_at: c.created_at || new Date().toISOString(),
         updated_at: c.updated_at || new Date().toISOString(),
       }));
       set({ contacts });
     } catch (error) {
-      console.error('Failed to fetch contacts:', error);
+      logError('Failed to fetch contacts', error);
       get().addNotification('error', 'Failed to load contacts');
     } finally {
       get().setLoading('contacts', false);
@@ -283,7 +349,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
       };
       set({ currentContact: contactDetail });
     } catch (error) {
-      console.error('Failed to fetch contact details:', error);
+      logError('Failed to fetch contact details', error);
       get().addNotification('error', 'Failed to load contact details');
     }
   },
@@ -337,7 +403,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
     } catch (error) {
       // Rollback: Remove the temp contact
       set((state) => ({ contacts: state.contacts.filter(c => c.id !== tempId) }));
-      console.error('Failed to create contact:', error);
+      logError('Failed to create contact', error);
       get().addNotification('error', 'Failed to create contact');
     }
   },
@@ -377,7 +443,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
       set((state) => ({
         contacts: state.contacts.map(c => c.id === id ? oldContact : c)
       }));
-      console.error('Failed to update contact:', error);
+      logError('Failed to update contact', error);
       get().addNotification('error', 'Failed to update contact');
     }
   },
@@ -388,7 +454,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
       set((state) => ({ contacts: state.contacts.filter(c => c.id !== id) }));
       get().addNotification('success', 'Profile archived');
     } catch (error) {
-      console.error('Failed to delete contact:', error);
+      logError('Failed to delete contact', error);
       get().addNotification('error', 'Failed to delete contact');
     }
   },
@@ -403,7 +469,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
           : state.currentContact
       }));
     } catch (error) {
-      console.error('Failed to fetch contact timeline:', error);
+      logError('Failed to fetch contact timeline', error);
     }
   },
   fetchContactNotes: async (id) => {
@@ -416,7 +482,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
           : state.currentContact
       }));
     } catch (error) {
-      console.error('Failed to fetch contact notes:', error);
+      logError('Failed to fetch contact notes', error);
     }
   },
   addContactNote: async (id, data) => {
@@ -425,7 +491,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
       await get().fetchContactNotes(id);
       get().addNotification('success', 'Added system note');
     } catch (error) {
-      console.error('Failed to add contact note:', error);
+      logError('Failed to add contact note', error);
       get().addNotification('error', 'Failed to add note');
     }
   },
@@ -435,7 +501,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
       await get().fetchContactNotes(id);
       get().addNotification('success', 'Note removed');
     } catch (error) {
-      console.error('Failed to delete contact note:', error);
+      logError('Failed to delete contact note', error);
       get().addNotification('error', 'Failed to remove note');
     }
   },
@@ -533,7 +599,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
 
       set({ tasks });
     } catch (error) {
-      console.error('Failed to fetch tasks:', error);
+      logError('Failed to fetch tasks', error);
       get().addNotification('error', 'Failed to load objectives');
     } finally {
       get().setLoading('tasks', false);
@@ -579,7 +645,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
     } catch (error) {
       // Rollback: Remove the temporary task from the UI
       set((state) => ({ tasks: state.tasks.filter(t => t.id !== tempId) }));
-      console.error('Failed to create task:', error);
+      logError('Failed to create task', error);
       get().addNotification('error', 'Neural grid synchronization failed');
     }
   },
@@ -612,7 +678,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
 
       set({ workflows });
     } catch (error) {
-      console.error('Failed to fetch workflows:', error);
+      logError('Failed to fetch workflows', error);
       get().addNotification('error', 'Failed to load orchestration pipelines');
     }
   },
@@ -633,6 +699,227 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
     set({ workflows: updated });
     if (typeof window !== 'undefined') localStorage.setItem('nexus_workflows', JSON.stringify(updated));
     get().addNotification('warning', `Dismantled orchestration workflow`);
+  },
+
+  // Agents Slice
+  agents: [],
+  hydrateAgents: async () => {
+    get().setLoading('agents', true);
+    try {
+      const response = await apiClient.get('/v1/agents');
+      // Laravel paginate() returns { data: { data: [...], total, ... } }
+      // Laravel collection() returns { data: [...] }
+      const raw = response.data?.data ?? response.data;
+      const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+
+      const agents: Agent[] = list.map((a: any) => ({
+        id: a.id.toString(),
+        name: a.name,
+        role: a.type_label || a.type || 'general',
+        status: a.status === 'active' ? 'online' : a.status === 'quarantined' ? 'error' : 'offline',
+        tokenUsage: a.execution_count || 0,
+        model: a.settings?.ai_model_id || 'default',
+        temperature: a.settings?.temperature || 0.7,
+        memorySync: true,
+        capabilities: a.tools?.map((t: any) => t.name) ?? [],
+        assignedTasks: [],
+      }));
+
+      set({ agents });
+    } catch (error) {
+      logError('Failed to fetch agents', error);
+      get().addNotification('error', 'Failed to load agents');
+    } finally {
+      get().setLoading('agents', false);
+    }
+  },
+  simulateAgent: async (id, payload) => {
+    try {
+      // Backend expects { input: <string|object>, mock_tools?: {} }
+      const body = { input: payload.task ?? payload.input ?? payload, mock_tools: payload.mock_tools ?? {} };
+      const response = await apiClient.post(`/v1/agents/${id}/simulate`, body);
+      get().addNotification('info', `Simulation completed for agent ${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Simulation failed:', error);
+      get().addNotification('error', 'Agent simulation failed');
+      throw error;
+    }
+  },
+  runAgent: async (id, payload) => {
+    try {
+      // Backend expects { input: <string|object>, async?: boolean }
+      const body = { input: payload.task ?? payload.input ?? payload };
+      const response = await apiClient.post(`/v1/agents/${id}/run`, body);
+      get().addNotification('success', `Agent execution started`);
+      return response.data;
+    } catch (error) {
+      console.error('Execution failed:', error);
+      get().addNotification('error', 'Agent execution failed');
+      throw error;
+    }
+  },
+  quarantineAgent: async (id, reason) => {
+    try {
+      await apiClient.post(`/v1/agents/${id}/quarantine`, { reason });
+      set((state) => ({
+        agents: state.agents.map(a => a.id === id ? { ...a, status: 'error' } : a)
+      }));
+      get().addNotification('warning', `Agent quarantined: ${reason}`);
+    } catch (error) {
+      console.error('Quarantine failed:', error);
+      get().addNotification('error', 'Failed to quarantine agent');
+    }
+  },
+  fetchAgentStatus: async (id) => {
+    try {
+      const response = await apiClient.get(`/v1/agents/${id}/status`);
+      const statusData = response.data.data || response.data;
+      set((state) => ({
+        agents: state.agents.map(a => a.id === id ? { 
+          ...a, 
+          status: statusData.status === 'active' ? 'online' : statusData.status === 'quarantined' ? 'error' : 'offline',
+          tokenUsage: statusData.execution_count || a.tokenUsage 
+        } : a)
+      }));
+    } catch (error) {
+      logError('Failed to fetch agent status', error);
+    }
+  },
+
+  // Agent Personas Slice
+  personas: [],
+  hydratePersonas: async () => {
+    get().setLoading('personas', true);
+    try {
+      const response = await apiClient.get('/v1/agent-personas');
+      const raw = response.data?.data ?? response.data;
+      const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+      const personas = list.map((p: any) => ({
+        ...p,
+        id: p.id.toString(),
+      }));
+      set({ personas });
+    } catch (error) {
+      logError('Failed to fetch personas', error);
+      get().addNotification('error', 'Failed to load Personas');
+    } finally {
+      get().setLoading('personas', false);
+    }
+  },
+  createPersona: async (data) => {
+    try {
+      const response = await apiClient.post('/v1/agent-personas', data);
+      const apiPersona = response.data?.data ?? response.data;
+      set((state) => ({ personas: [...state.personas, { ...apiPersona, id: apiPersona.id.toString() }] }));
+      get().addNotification('success', `Created persona: ${data.name}`);
+    } catch (error) {
+      logError('Failed to create persona', error);
+      get().addNotification('error', 'Failed to create persona');
+      throw error;
+    }
+  },
+  updatePersona: async (id, data) => {
+    try {
+      const response = await apiClient.put(`/v1/agent-personas/${id}`, data);
+      const apiPersona = response.data?.data ?? response.data;
+      set((state) => ({
+        personas: state.personas.map(p => p.id === id ? { ...p, ...apiPersona, id: apiPersona.id.toString() } : p)
+      }));
+      get().addNotification('success', `Updated persona`);
+    } catch (error) {
+      logError('Failed to update persona', error);
+      get().addNotification('error', 'Failed to update persona');
+      throw error;
+    }
+  },
+  deletePersona: async (id) => {
+    try {
+      await apiClient.delete(`/v1/agent-personas/${id}`);
+      set((state) => ({ personas: state.personas.filter(p => p.id !== id) }));
+      get().addNotification('success', 'Persona deleted');
+    } catch (error: any) {
+      logError('Failed to delete persona', error);
+      const msg = error.response?.data?.message || 'Failed to delete persona';
+      get().addNotification('error', msg);
+    }
+  },
+
+  // MCP Servers Slice
+  mcpServers: [],
+  hydrateMCPServers: async () => {
+    get().setLoading('mcpServers', true);
+    try {
+      const response = await apiClient.get('/v1/mcp-servers');
+      const raw = response.data?.data ?? response.data;
+      const list = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+      const mcpServers = list.map((s: any) => ({
+        ...s,
+        id: s.id.toString(),
+      }));
+      set({ mcpServers });
+    } catch (error) {
+      logError('Failed to fetch MCP servers', error);
+      get().addNotification('error', 'Failed to load MCP Servers');
+    } finally {
+      get().setLoading('mcpServers', false);
+    }
+  },
+  createMCPServer: async (data) => {
+    try {
+      const response = await apiClient.post('/v1/mcp-servers', data);
+      const apiServer = response.data?.data ?? response.data;
+      set((state) => ({ mcpServers: [...state.mcpServers, { ...apiServer, id: apiServer.id.toString() }] }));
+      get().addNotification('success', `Registered MCP server: ${data.name}`);
+    } catch (error) {
+      logError('Failed to create MCP server', error);
+      get().addNotification('error', 'Failed to register MCP server');
+      throw error;
+    }
+  },
+  updateMCPServer: async (id, data) => {
+    try {
+      const response = await apiClient.put(`/v1/mcp-servers/${id}`, data);
+      const apiServer = response.data?.data ?? response.data;
+      set((state) => ({
+        mcpServers: state.mcpServers.map(s => s.id === id ? { ...s, ...apiServer, id: apiServer.id.toString() } : s)
+      }));
+      get().addNotification('success', `Updated MCP server`);
+    } catch (error) {
+      logError('Failed to update MCP server', error);
+      get().addNotification('error', 'Failed to update MCP server');
+      throw error;
+    }
+  },
+  deleteMCPServer: async (id) => {
+    try {
+      await apiClient.delete(`/v1/mcp-servers/${id}`);
+      set((state) => ({ mcpServers: state.mcpServers.filter(s => s.id !== id) }));
+      get().addNotification('success', 'MCP server removed');
+    } catch (error) {
+      logError('Failed to delete MCP server', error);
+      get().addNotification('error', 'Failed to remove MCP server');
+    }
+  },
+  connectMCPServer: async (name) => {
+    try {
+      await apiClient.post(`/v1/mcp-servers/${name}/connect`);
+      get().addNotification('success', `Connected to MCP server: ${name}`);
+      get().hydrateMCPServers();
+    } catch (error) {
+      logError('Failed to connect MCP server', error);
+      get().addNotification('error', `Failed to connect to ${name}`);
+    }
+  },
+  disconnectMCPServer: async (name) => {
+    try {
+      await apiClient.post(`/v1/mcp-servers/${name}/disconnect`);
+      get().addNotification('warning', `Disconnected from MCP server: ${name}`);
+      get().hydrateMCPServers();
+    } catch (error) {
+      logError('Failed to disconnect MCP server', error);
+      get().addNotification('error', `Failed to disconnect from ${name}`);
+    }
   },
 
   // Memories Slice

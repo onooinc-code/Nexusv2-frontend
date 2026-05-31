@@ -36,13 +36,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Initialise from localStorage on mount
   useEffect(() => {
-    const storedToken = getToken();
-    const storedUser  = getUser();
-    if (storedToken && storedUser) {
-      setTokenState(storedToken);
-      setUserState(storedUser);
-    }
-    setIsLoading(false);
+    const initializeAuth = async () => {
+      const storedToken = getToken();
+      const storedUser  = getUser();
+      if (storedToken && storedUser) {
+        setTokenState(storedToken);
+        setUserState(storedUser);
+      }
+      setIsLoading(false);
+    };
+    void initializeAuth();
   }, []);
 
   // Redirect unauthenticated users to /login

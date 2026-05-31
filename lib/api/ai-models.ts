@@ -13,18 +13,29 @@ export interface AiProvider {
   auth_header_format?: string;
   payload_format?: string;
   is_active: boolean;
+  last_synced_at?: string;
   created_at?: string;
   updated_at?: string;
+  /** Eager-loaded relation from backend with('models') */
+  models?: AiModel[];
+  models_count?: number;
 }
 
 export interface AiModel {
   id: string;
   name: string;
+  provider_id?: string;
   provider?: string;
   ai_provider_id?: string;
   description?: string;
   capabilities?: string[];
   status?: string;
+  cost_profile?: string;
+  latency_profile?: string;
+  security_class?: string;
+  quality_tier?: string;
+  language_support?: string[];
+  last_synced_at?: string;
 }
 
 export interface EcaRule {
@@ -63,14 +74,63 @@ export interface IntentRoute {
   fallbackModel?: string;
 }
 
+export interface ProviderHealthRecord {
+  provider_id: string;
+  status: 'healthy' | 'degraded' | 'offline';
+  avg_latency: number;
+}
+
+export interface CostForecast {
+  current_spend: number;
+  monthly_limit: number;
+  remaining_budget: number;
+  forecasted_total: number;
+  daily_average: number;
+  status: 'healthy' | 'over_budget_predicted' | 'budget_exceeded';
+}
+
+export interface AiAuditEntry {
+  id: number;
+  event_type: string;
+  provider_id: string | null;
+  model_id: string | null;
+  intent: string | null;
+  status: string;
+  latency_ms: number;
+  fallback_triggered: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  error_type: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AI Providers API
 // ─────────────────────────────────────────────────────────────────────────────
 export const aiProvidersApi = {
-  list: () => apiClient.get<{ data: AiProvider[] }>('/v1/ai-models/providers'),
+  list: () =>
+    apiClient.get<{ success: boolean; data: AiProvider[] }>('/v1/ai/providers'),
 
-  create: (data: Partial<AiProvider>) =>
-    apiClient.post<{ success: boolean; data: AiProvider }>('/v1/ai/providers', data),
+  get: (id: string) =>
+    apiClient.get<{ success: boolean; data: AiProvider }>(`/v1/ai/providers/${id}`),
+
+  create: (data: Partial<AiProvider> & { api_key?: string }) =>
+    apiClient.post<{ success: boolean; data: AiProvider; message: string }>('/v1/ai/providers', data),
+
+  update: (id: string, data: Partial<AiProvider> & { api_key?: string }) =>
+    apiClient.put<{ success: boolean; data: AiProvider; message: string }>(`/v1/ai/providers/${id}`, data),
+
+  delete: (id: string) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/v1/ai/providers/${id}`),
+
+  /** Toggle the is_active flag without requiring all other fields */
+  toggleActive: (id: string, isActive: boolean) =>
+    apiClient.patch<{ success: boolean; data: AiProvider; message: string }>(
+      `/v1/ai/providers/${id}/toggle-active`,
+      { is_active: isActive }
+    ),
 
   test: (id: string) =>
     apiClient.post<{ success: boolean; status: string; message: string; data?: Record<string, unknown> }>(
@@ -78,9 +138,13 @@ export const aiProvidersApi = {
     ),
 
   syncModels: (id: string) =>
-    apiClient.post<{ success: boolean; data: AiModel[] }>(
-      `/v1/ai/providers/${id}/sync-models`
-    ),
+    apiClient.post<{
+      success: boolean;
+      data: AiModel[];
+      synced_count: number;
+      total_count: number;
+      message: string;
+    }>(`/v1/ai/providers/${id}/sync-models`),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +181,38 @@ export const intentRoutingApi = {
 
   updateRoute: (data: Partial<IntentRoute>) =>
     apiClient.put<{ success: boolean; data: IntentRoute }>('/v1/ai/intents/routing', data),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Health Monitoring API
+// ─────────────────────────────────────────────────────────────────────────────
+export const aiHealthApi = {
+  getScorecard: () =>
+    apiClient.get<{ success: boolean; data: Record<string, ProviderHealthRecord> }>(
+      '/v1/ai/providers/health'
+    ),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cost Analytics & Budget API
+// ─────────────────────────────────────────────────────────────────────────────
+export const aiCostApi = {
+  getForecast: () =>
+    apiClient.get<{ success: boolean; data: CostForecast }>('/v1/ai/cost/forecast'),
+
+  setBudget: (monthlyLimit: number, workspaceId?: string) =>
+    apiClient.post<{ success: boolean; message: string }>('/v1/ai/cost/budget', {
+      monthly_limit: monthlyLimit,
+      workspace_id: workspaceId,
+    }),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit Trail API
+// ─────────────────────────────────────────────────────────────────────────────
+export const aiAuditApi = {
+  list: (params?: { event_type?: string; status?: string; limit?: number }) =>
+    apiClient.get<{ success: boolean; data: AiAuditEntry[] }>('/v1/ai/audit-trail', { params }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

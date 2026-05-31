@@ -10,10 +10,12 @@ import { NxDrawer } from '@/components/NxDrawer';
 import { NxMetricCard } from '@/components/NxMetricCard';
 import { useAppStore } from '@/store/store-provider';
 import { ArrowLeft, User, Mail, Phone, Building, Edit2, Trash2, ShieldAlert, FileText, Activity, Save, Plus, Loader2, BarChart3, Users, MessageSquare, Calendar, Link2, Settings, X, Check, Pin, Trash } from 'lucide-react';
+import Image from 'next/image';
 import type { TimelineEvent, ContactNote as ContactNoteType } from '@/types';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import apiClient from '@/lib/api/client';
+import { logError } from '@/lib/utils/error-handler';
 
 interface ContactData {
   id: string;
@@ -166,14 +168,17 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setContact(contactData);
       setEditForm(contactData);
     } catch (error) {
-      console.error('Failed to load contact:', error);
+      logError('Failed to load contact', error);
       addNotification('error', 'Failed to load contact');
       router.replace('/contacts');
     }
   }, [resolvedParams.id, hydrateContacts, addNotification, router]);
 
   useEffect(() => {
-    loadContact();
+    const load = async () => {
+      await loadContact();
+    };
+    void load();
   }, [loadContact]);
 
   const loadAnalytics = useCallback(async () => {
@@ -183,17 +188,13 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       const response = await apiClient.get(`/v1/contacts/${contact.id}/analytics`);
       setAnalytics(response.data.data?.analytics || response.data);
     } catch (error) {
-      console.error('Failed to load analytics:', error);
+      logError('Failed to load analytics', error);
     } finally {
       setIsLoadingAnalytics(false);
     }
   }, [contact]);
 
-  useEffect(() => {
-    if (activeTab === 'analytics' && contact) {
-      loadAnalytics();
-    }
-  }, [activeTab, contact, loadAnalytics]);
+  // Analytics loading is handled by the unified activeTab useEffect below
 
   const loadIdentifiers = useCallback(async () => {
     if (!contact) return;
@@ -203,7 +204,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       const response = await apiClient.get(`/v1/contacts/${contact.id}/identifiers`);
       setIdentifiers(response.data.data || []);
     } catch (error) {
-      console.error('Failed to load identifiers:', error);
+      logError('Failed to load identifiers', error);
     } finally {
       setIsLoadingIdentifiers(false);
     }
@@ -217,7 +218,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       const response = await apiClient.get(`/v1/contacts/${contact.id}/relationships`);
       setRelationships(response.data.data || []);
     } catch (error) {
-      console.error('Failed to load relationships:', error);
+      logError('Failed to load relationships', error);
     } finally {
       setIsLoadingRelationships(false);
     }
@@ -231,7 +232,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       const response = await apiClient.get(`/v1/contacts/${contact.id}/preferences`);
       setPreferences(response.data.data || []);
     } catch (error) {
-      console.error('Failed to load preferences:', error);
+      logError('Failed to load preferences', error);
     } finally {
       setIsLoadingPreferences(false);
     }
@@ -245,7 +246,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       const response = await apiClient.get(`/v1/contacts/${contact.id}/aliases`);
       setAliases(response.data.data || []);
     } catch (error) {
-      console.error('Failed to load aliases:', error);
+      logError('Failed to load aliases', error);
     } finally {
       setIsLoadingAliases(false);
     }
@@ -257,7 +258,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
     try {
       await fetchContactTimeline(contact.id);
     } catch (error) {
-      console.error('Failed to load timeline:', error);
+      logError('Failed to load timeline', error);
     } finally {
       setIsLoadingTimeline(false);
     }
@@ -269,22 +270,42 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
     try {
       await fetchContactNotes(contact.id);
     } catch (error) {
-      console.error('Failed to load notes:', error);
+      logError('Failed to load notes', error);
     } finally {
       setIsLoadingNotes(false);
     }
   }, [contact, fetchContactNotes]);
 
   useEffect(() => {
-    if (contact) {
-      loadIdentifiers();
-      loadRelationships();
-      loadPreferences();
-      loadAliases();
-      loadTimeline();
-      loadNotes();
-    }
-  }, [contact, loadIdentifiers, loadRelationships, loadPreferences, loadAliases, loadTimeline, loadNotes]);
+    const load = async () => {
+      if (!contact) return;
+      
+      switch (activeTab) {
+        case 'timeline':
+          await loadTimeline();
+          break;
+        case 'analytics':
+          await loadAnalytics();
+          break;
+        case 'notes':
+          await loadNotes();
+          break;
+        case 'identifiers':
+          await loadIdentifiers();
+          break;
+        case 'relationships':
+          await loadRelationships();
+          break;
+        case 'preferences':
+          await loadPreferences();
+          break;
+        case 'aliases':
+          await loadAliases();
+          break;
+      }
+    };
+    void load();
+  }, [contact, activeTab, loadTimeline, loadAnalytics, loadNotes, loadIdentifiers, loadRelationships, loadPreferences, loadAliases]);
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -294,7 +315,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       await addContactNote(contact.id, { note: newNoteText.trim() });
       setNewNoteText('');
     } catch (error) {
-      console.error('Failed to add note:', error);
+      logError('Failed to add note', error);
     } finally {
       setIsAddingNote(false);
     }
@@ -305,7 +326,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
     try {
       await deleteContactNote(contact.id, noteId);
     } catch (error) {
-      console.error('Failed to delete note:', error);
+      logError('Failed to delete note', error);
     }
   };
 
@@ -324,7 +345,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setNewIdentifier({ type: 'email', value: '', trusted: true });
       addNotification('success', 'Identifier added');
     } catch (error) {
-      console.error('Failed to create identifier:', error);
+      logError('Failed to create identifier', error);
       addNotification('error', 'Failed to create identifier');
     }
   };
@@ -337,7 +358,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setIdentifiers((current) => current.filter((item) => item.id !== identifierId));
       addNotification('success', 'Identifier removed');
     } catch (error) {
-      console.error('Failed to delete identifier:', error);
+      logError('Failed to delete identifier', error);
       addNotification('error', 'Failed to delete identifier');
     }
   };
@@ -362,7 +383,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setNewRelationship({ related_contact_id: '', relationship_type: 'work', mention_count: 1, confidence: 1.0 });
       addNotification('success', 'Relationship saved');
     } catch (error) {
-      console.error('Failed to create relationship:', error);
+      logError('Failed to create relationship', error);
       addNotification('error', 'Failed to create relationship');
     }
   };
@@ -375,7 +396,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setRelationships((current) => current.filter((item) => item.id !== relationshipId));
       addNotification('success', 'Relationship removed');
     } catch (error) {
-      console.error('Failed to delete relationship:', error);
+      logError('Failed to delete relationship', error);
       addNotification('error', 'Failed to delete relationship');
     }
   };
@@ -395,7 +416,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setNewPreference({ preference_type: 'channel', value: '', confidence: 1.0, inferred_from_count: 0 });
       addNotification('success', 'Preference saved');
     } catch (error) {
-      console.error('Failed to create preference:', error);
+      logError('Failed to create preference', error);
       addNotification('error', 'Failed to create preference');
     }
   };
@@ -408,7 +429,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setPreferences((current) => current.filter((item) => item.id !== preferenceId));
       addNotification('success', 'Preference removed');
     } catch (error) {
-      console.error('Failed to delete preference:', error);
+      logError('Failed to delete preference', error);
       addNotification('error', 'Failed to delete preference');
     }
   };
@@ -428,7 +449,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setNewAlias({ alias_name: '', confidence: 1.0, created_context: '' });
       addNotification('success', 'Alias added');
     } catch (error) {
-      console.error('Failed to create alias:', error);
+      logError('Failed to create alias', error);
       addNotification('error', 'Failed to create alias');
     }
   };
@@ -441,7 +462,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setAliases((current) => current.filter((item) => item.id !== aliasId));
       addNotification('success', 'Alias removed');
     } catch (error) {
-      console.error('Failed to delete alias:', error);
+      logError('Failed to delete alias', error);
       addNotification('error', 'Failed to delete alias');
     }
   };
@@ -455,7 +476,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       addJob?.(`Synchronizing updated profile telemetry: ${contact.name}`);
       setIsEditDrawerOpen(false);
     } catch (error) {
-      console.error('Failed to update contact:', error);
+      logError('Failed to update contact', error);
       addNotification('error', 'Failed to update contact');
     }
   };
@@ -467,7 +488,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       setIsDeleteModalOpen(false);
       router.replace('/contacts');
     } catch (error) {
-      console.error('Failed to delete contact:', error);
+      logError('Failed to delete contact', error);
       addNotification('error', 'Failed to delete contact');
     }
   };
@@ -505,11 +526,13 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               <div className="w-24 h-24 md:w-32 md:h-32 rounded-full border border-white/20 bg-black/50 overflow-hidden shadow-2xl shrink-0 p-1">
                 <div className="w-full h-full rounded-full bg-surface-dark overflow-hidden relative flex items-center justify-center">
                   {contact.avatar ? (
-                    <img
+                    <Image
                       src={contact.avatar}
                       alt={contact.name}
                       className="object-cover w-full h-full"
                       referrerPolicy="no-referrer"
+                      fill
+                      sizes="100%"
                     />
                   ) : (
                     <User className="w-12 h-12 text-gray-500" />

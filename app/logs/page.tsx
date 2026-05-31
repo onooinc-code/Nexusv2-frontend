@@ -79,7 +79,10 @@ export default function LogsPage() {
   }, [levelFilter, channelFilter, searchQuery, page, isPaused, selectedLog]);
 
   useEffect(() => {
-    fetchLogs();
+    const load = async () => {
+      await fetchLogs();
+    };
+    void load();
   }, [fetchLogs]);
 
   // Polling for live logs if not paused and on page 1

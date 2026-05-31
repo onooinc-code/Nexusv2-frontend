@@ -7,12 +7,18 @@ export const NxLiveRegion = ({ message, politeness = 'polite' }: { message: stri
 
   useEffect(() => {
     if (message) {
-      setAnnouncement(message);
-      // clear after countdown so next identical message can trigger
       const timer = setTimeout(() => {
+        setAnnouncement(message);
+      }, 0);
+
+      const clearTimer = setTimeout(() => {
         setAnnouncement("");
       }, 3000);
-      return () => clearTimeout(timer);
+
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(clearTimer);
+      };
     }
   }, [message]);
 

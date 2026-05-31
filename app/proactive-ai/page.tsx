@@ -177,7 +177,12 @@ export default function ProactiveAIPage() {
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    const load = async () => {
+      await fetchAll();
+    };
+    void load();
+  }, [fetchAll]);
 
   const toggleRule = async (id: number) => {
     try {

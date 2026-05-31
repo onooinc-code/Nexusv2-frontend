@@ -47,7 +47,10 @@ export default function SchedulerPage() {
   };
 
   useEffect(() => {
-    fetchJobs();
+    const loadJobs = async () => {
+      await fetchJobs();
+    };
+    void loadJobs();
   }, []);
 
   const handleToggleStatus = async (job: SchedulerJob) => {

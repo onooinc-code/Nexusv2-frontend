@@ -99,16 +99,26 @@ export interface TimelineEvent {
 
 export interface Contact extends BaseModel {
   name: string;
+  display_name?: string;
+  alternate_name?: string;
   type?: string;
+  contact_type?: string;
+  gender?: string;
   title?: string;
   role?: string;
   company?: string;
   avatar_url?: string;
   avatar?: string;
   last_seen_at?: string;
+  last_interaction_at?: string;
   email?: string;
   phone?: string;
+  whatsapp_number?: string;
+  primary_identifier?: string;
   is_active?: boolean;
+  reply_mode_override?: string;
+  profile_confidence?: number;
+  memory_freshness?: string;
   metadata?: Record<string, any>;
   attributes?: Record<string, any>;
   

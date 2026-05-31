@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
+import { getToken } from '@/lib/auth';
 
 // Create API Request/Response Types (as per task 1.7.4)
 export interface ApiError {
@@ -9,13 +10,12 @@ export interface ApiError {
 
 // Create base client
 const apiClient: AxiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api',
+  baseURL: (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api').replace(/\/$/, ''),
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
-  timeout: 10000,
-  withCredentials: true,
+  timeout: 15000,
 });
 
 // Configure API base URL and interceptors (task 1.7.2 & 1.7.5)
@@ -23,7 +23,7 @@ apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Setup authentication token handling
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('nexus_auth_token');
+      const token = getToken();
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
       }

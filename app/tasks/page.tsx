@@ -26,7 +26,10 @@ export default function TasksPage() {
   const [newTaskDueDate, setNewTaskDueDate] = useState("TBD");
 
   useEffect(() => {
-    hydrateTasks();
+    const loadTasks = async () => {
+      await hydrateTasks();
+    };
+    void loadTasks();
   }, [hydrateTasks]);
 
   const handleToggleStatus = (id: string, currentStatus: any) => {

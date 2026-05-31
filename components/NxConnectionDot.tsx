@@ -1,8 +1,10 @@
+"use client";
+
 import React from 'react';
 import { cn } from '@/lib/utils';
 
 export interface NxConnectionDotProps {
-  status?: 'online' | 'connecting' | 'offline' | 'error';
+  status?: 'online' | 'connecting' | 'offline' | 'error' | 'unknown';
   className?: string;
 }
 

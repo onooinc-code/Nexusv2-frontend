@@ -4,6 +4,7 @@ import './globals.css'; // Global styles
 import { ThemeProvider } from '@/components/theme-provider';
 import { StoreProvider } from '@/store/store-provider';
 import { AuthProvider } from '@/context/AuthContext';
+import { TransitionProgressBar } from '@/components/TransitionProgressBar';
 import RealTimeJobListener from '@/components/RealTimeJobListener';
 
 const inter = Inter({
@@ -33,6 +34,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             disableTransitionOnChange
           >
             <AuthProvider>
+              <TransitionProgressBar />
               <RealTimeJobListener />
               {children}
             </AuthProvider>

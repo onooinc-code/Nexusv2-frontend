@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { NxWorkflowNode } from '@/components/NxWorkflowNode';
 import { NxModal } from '@/components/NxModal';
@@ -9,149 +9,186 @@ import { NxSelect } from '@/components/NxSelect';
 import { NxActionButton } from '@/components/NxActionButton';
 import { NxGlassCard } from '@/components/NxGlassCard';
 import { NxEmptyState } from '@/components/NxEmptyState';
-import { 
-  GitMerge, 
-  Play, 
-  Plus, 
-  Trash2, 
-  RefreshCw, 
-  CheckCircle2, 
-  Zap, 
-  CornerRightDown 
-} from 'lucide-react';
+import apiClient from '@/lib/api/client';
+import { CheckCircle2, GitMerge, PauseCircle, Play, Plus, RefreshCw, XCircle } from 'lucide-react';
 
-interface NodeItem {
+type NodeType = 'trigger' | 'action' | 'condition' | 'agent';
+type NodeStatus = 'pending' | 'running' | 'success' | 'error';
+
+interface WorkflowStep {
   id: string;
-  title: string;
-  type: 'trigger' | 'action' | 'condition' | 'agent';
-  status: 'pending' | 'running' | 'success' | 'error';
-  x: number; // For absolute canvas grids
-  y: number;
+  name: string;
+  type: string;
+  status?: NodeStatus;
 }
 
-const DEFAULT_NODES: NodeItem[] = [
-  { id: "1", title: "Inbound Email Webhook", type: "trigger", status: "pending", x: 40, y: 150 },
-  { id: "2", title: "Analyze with Ingestion Alpha", type: "agent", status: "pending", x: 280, y: 150 },
-  { id: "3", title: "Verify Sentiment is High", type: "condition", status: "pending", x: 520, y: 150 },
-  { id: "4", title: "Draft Response via Outreach", type: "agent", status: "pending", x: 760, y: 150 }
+interface WorkflowItem {
+  id: string | number;
+  name: string;
+  key: string;
+  description?: string;
+  status: string;
+  trigger_type: string;
+  steps: WorkflowStep[];
+  version: number;
+  is_system: boolean;
+}
+
+interface WorkflowExecution {
+  id: string;
+  status: string;
+  step_logs?: Array<{
+    step_id: string;
+    status: string;
+    step_name: string;
+    duration_ms?: number;
+    error?: string;
+  }>;
+  runtime_state?: {
+    waiting_for?: { type?: string };
+  };
+}
+
+const starterSteps: WorkflowStep[] = [
+  { id: 'manual_trigger', name: 'Manual Launch', type: 'trigger' },
+  { id: 'collect_context', name: 'Collect Context', type: 'action' },
+  { id: 'approval_gate', name: 'Human Approval', type: 'wait' },
+  { id: 'final_log', name: 'Write Execution Log', type: 'log' },
 ];
 
-export default function WorkflowsPage() {
-  const [nodes, setNodes] = useState<NodeItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('nexus_workflows');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return DEFAULT_NODES;
-        }
-      }
-    }
-    return DEFAULT_NODES;
-  });
-  const [isRunning, setIsRunning] = useState(false);
-  const [activeStep, setActiveStep] = useState<number>(-1);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // Creation form state
-  const [newNodeTitle, setNewNodeTitle] = useState("");
-  const [newNodeType, setNewNodeType] = useState<'trigger' | 'action' | 'condition' | 'agent'>('agent');
+const mapNodeType = (type: string): NodeType => {
+  if (type === 'agent' || type === 'task') return 'agent';
+  if (type === 'decision' || type === 'condition') return 'condition';
+  if (type === 'trigger' || type === 'webhook' || type === 'scheduled') return 'trigger';
+  return 'action';
+};
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('nexus_workflows');
-      if (!saved) {
-        localStorage.setItem('nexus_workflows', JSON.stringify(DEFAULT_NODES));
-      }
+const mapNodeStatus = (step: WorkflowStep, execution?: WorkflowExecution): NodeStatus => {
+  const log = execution?.step_logs?.find(item => item.step_id === step.id);
+  if (!log) return 'pending';
+  if (log.status === 'running' || log.status === 'paused') return 'running';
+  if (log.status === 'failed') return 'error';
+  return 'success';
+};
+
+export default function WorkflowsPage() {
+  const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | number | null>(null);
+  const [execution, setExecution] = useState<WorkflowExecution | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRunning, setIsRunning] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newTrigger, setNewTrigger] = useState('manual');
+
+  const selectedWorkflow = useMemo(
+    () => workflows.find(workflow => workflow.id === selectedId) ?? workflows[0] ?? null,
+    [workflows, selectedId]
+  );
+
+  const nodes = useMemo(() => {
+    return (selectedWorkflow?.steps ?? []).map(step => ({
+      ...step,
+      status: mapNodeStatus(step, execution ?? undefined),
+    }));
+  }, [selectedWorkflow, execution]);
+
+  const fetchWorkflows = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await apiClient.get('/v1/workflows?limit=50');
+      const list = response.data?.data ?? [];
+      setWorkflows(list);
+      if (!selectedId && list.length > 0) setSelectedId(list[0].id);
+    } finally {
+      setIsLoading(false);
     }
+  }, [selectedId]);
+
+  const fetchProgress = useCallback(async (workflowId: string | number) => {
+    const response = await apiClient.get(`/v1/workflows/${workflowId}/progress`);
+    const latest = response.data?.data?.latest_execution;
+    setExecution(latest ?? null);
   }, []);
 
-  const saveToStorage = (updatedNodes: NodeItem[]) => {
-    setNodes(updatedNodes);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('nexus_workflows', JSON.stringify(updatedNodes));
-    }
-  };
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchWorkflows();
+    }, 0);
 
-  // Simulate step-by-step runner pipeline
-  const runPipelineSimulation = async () => {
-    if (isRunning) return;
-    setIsRunning(true);
-    
-    // Set all nodes to pending first
-    let currentNodes: NodeItem[] = nodes.map(n => ({ ...n, status: 'pending' }));
-    setNodes(currentNodes);
+    return () => window.clearTimeout(timer);
+  }, [fetchWorkflows]);
 
-    for (let i = 0; i < currentNodes.length; i++) {
-       setActiveStep(i);
-       // Mark step running
-       currentNodes = currentNodes.map((n, idx) => idx === i ? { ...n, status: 'running' } : n);
-       setNodes(currentNodes);
-       
-       // Hold 1.5 seconds per node step
-       await new Promise(resolve => setTimeout(resolve, 1400));
-       
-       // Complete step
-       const successChance = Math.random() > 0.1; // 90% success rate
-       currentNodes = currentNodes.map((n, idx) => idx === i ? { ...n, status: (successChance ? 'success' as const : 'error' as const) } : n);
-       setNodes(currentNodes);
+  useEffect(() => {
+    if (!selectedWorkflow) return;
 
-      if (!successChance) {
-        // Halt on error
-        break;
-      }
-    }
+    const timer = window.setTimeout(() => {
+      void fetchProgress(selectedWorkflow.id);
+    }, 0);
 
-    setActiveStep(-1);
-    setIsRunning(false);
-    // Persist finalized statuses
-    saveToStorage(currentNodes);
-  };
+    return () => window.clearTimeout(timer);
+  }, [fetchProgress, selectedWorkflow]);
 
-  const handleAddNode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newNodeTitle.trim()) return;
+  useEffect(() => {
+    if (!execution || ['completed', 'failed', 'cancelled'].includes(execution.status)) return;
 
-    // Place node dynamically at the coordinate after the last node
-    const lastNode = nodes[nodes.length - 1];
-    const newX = lastNode ? lastNode.x + 240 : 40;
-    const newY = lastNode ? lastNode.y : 150;
+    const timer = window.setInterval(() => {
+      if (selectedWorkflow) void fetchProgress(selectedWorkflow.id);
+    }, 2500);
 
-    const newNode: NodeItem = {
-      id: String(Date.now()),
-      title: newNodeTitle,
-      type: newNodeType,
-      status: 'pending',
-      x: newX,
-      y: newY
-    };
+    return () => window.clearInterval(timer);
+  }, [execution, fetchProgress, selectedWorkflow]);
 
-    const updated = [...nodes, newNode];
-    saveToStorage(updated);
-    
-    // Clear
-    setNewNodeTitle("");
+  const createWorkflow = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newName.trim()) return;
+
+    const key = newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `workflow-${Date.now()}`;
+    const response = await apiClient.post('/v1/workflows', {
+      name: newName,
+      key: `${key}-${Date.now()}`,
+      description: 'Custom orchestration workflow',
+      trigger_type: newTrigger,
+      status: 'draft',
+      steps: starterSteps,
+      settings: { max_execution_depth: 1000 },
+    });
+
+    const workflow = response.data?.data;
+    setWorkflows(current => [workflow, ...current]);
+    setSelectedId(workflow.id);
+    setNewName('');
+    setNewTrigger('manual');
     setIsModalOpen(false);
   };
 
-  const clearCanvas = () => {
-    saveToStorage([]);
-    setActiveStep(-1);
-    setIsRunning(false);
+  const executeWorkflow = async () => {
+    if (!selectedWorkflow || isRunning) return;
+    setIsRunning(true);
+    try {
+      const response = await apiClient.post(`/v1/workflows/${selectedWorkflow.id}/execute`, {
+        run_mode: 'async',
+        input_payload: { launched_from: 'WorkflowsHub' },
+      });
+      setExecution(response.data?.data ?? null);
+      fetchProgress(selectedWorkflow.id);
+    } finally {
+      setIsRunning(false);
+    }
   };
 
-  const resetToDefault = () => {
-    saveToStorage(DEFAULT_NODES);
-    setActiveStep(-1);
-    setIsRunning(false);
+  const resumeExecution = async (decision: 'approve' | 'deny') => {
+    if (!execution) return;
+    const response = await apiClient.post(`/v1/workflows/executions/${execution.id}/resume`, {
+      decision,
+      input_payload: { approval_decision: decision },
+    });
+    setExecution(response.data?.data ?? null);
   };
 
   return (
     <AppLayout>
       <div className="p-6 h-full flex flex-col gap-6 w-full max-w-7xl mx-auto overflow-y-auto">
-        
-        {/* Header Module */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-gray-100 flex items-center gap-2">
@@ -159,226 +196,159 @@ export default function WorkflowsPage() {
               Workflow Orchestration Canvas
             </h1>
             <p className="text-sm text-gray-400 mt-1">
-              Model conditional automation paths, configure active agents, and execute background pipelines.
+              {selectedWorkflow ? `${selectedWorkflow.name} v${selectedWorkflow.version}` : 'No workflow selected'}
             </p>
           </div>
-          
-          <div className="flex items-center gap-2 shrink-0">
-            <NxActionButton 
-              variant="secondary" 
-              size="sm"
-              onClick={resetToDefault}
-              leftIcon={<RefreshCw className="w-4 h-4" />}
-              disabled={isRunning}
-            >
-              Reset Canvas
-            </NxActionButton>
-            
-            <NxActionButton 
-              variant="secondary" 
-              size="sm"
-              onClick={() => setIsModalOpen(true)}
-              leftIcon={<Plus className="w-4 h-4" />}
-              disabled={isRunning}
-            >
-              Add Action Node
-            </NxActionButton>
 
-            <NxActionButton 
-              variant="primary" 
+          <div className="flex items-center gap-2 shrink-0">
+            <NxActionButton variant="secondary" size="sm" onClick={fetchWorkflows} leftIcon={<RefreshCw className="w-4 h-4" />}>
+              Refresh
+            </NxActionButton>
+            <NxActionButton variant="secondary" size="sm" onClick={() => setIsModalOpen(true)} leftIcon={<Plus className="w-4 h-4" />}>
+              New Workflow
+            </NxActionButton>
+            <NxActionButton
+              variant="primary"
               size="sm"
-              onClick={runPipelineSimulation}
+              onClick={executeWorkflow}
               leftIcon={<Play className="w-4 h-4 text-white hover:text-white" />}
               isLoading={isRunning}
+              disabled={!selectedWorkflow || selectedWorkflow.status === 'running'}
               className="bg-emerald-600 hover:bg-emerald-500 text-white"
             >
-              Execute Pipeline
+              Execute
             </NxActionButton>
           </div>
         </div>
 
-        {/* Visual Canvas Panel */}
-        <div className="flex-1 min-h-[460px] bg-black/40 border border-white/10 rounded-2xl relative overflow-x-auto overflow-y-hidden p-6 select-none bg-grid scrollbar-thin">
-          
-          {nodes.length > 0 ? (
-            <div className="relative w-max h-full min-w-full flex items-center gap-0">
-              {/* Render connector lines using absolute SVGs behind the nodes */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ minWidth: '1200px' }}>
-                <defs>
-                  <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#00a8ff" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#9b51e0" stopOpacity="0.4" />
-                  </linearGradient>
-                  
-                  <linearGradient id="lineGradActive" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#cf00ff" />
-                    <stop offset="100%" stopColor="#00cbff" />
-                  </linearGradient>
-                </defs>
-                
-                {nodes.map((node, i) => {
-                  if (i === nodes.length - 1) return null;
-                  const nextNode = nodes[i + 1];
-                  const x1 = node.x + 192; // right edge of card container
-                  const y1 = node.y + 44;  // middle height of node container
-                  const x2 = nextNode.x;   // left edge of next card container
-                  const y2 = nextNode.y + 44;
-                  
-                  const isCurrentConnecting = activeStep === i;
+        <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr_320px] gap-4 min-h-[520px]">
+          <NxGlassCard className="p-3 bg-white/5 border-white/5 overflow-hidden">
+            <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto pr-1">
+              {workflows.map(workflow => (
+                <button
+                  key={workflow.id}
+                  onClick={() => {
+                    setSelectedId(workflow.id);
+                    setExecution(null);
+                  }}
+                  className={`text-left rounded-lg border p-3 transition-colors ${
+                    workflow.id === selectedWorkflow?.id
+                      ? 'border-nexus-blue/60 bg-nexus-blue/10'
+                      : 'border-white/10 bg-black/20 hover:border-white/20'
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-gray-100 truncate">{workflow.name}</div>
+                  <div className="text-xs text-gray-500 mt-1 uppercase">{workflow.trigger_type} / {workflow.status}</div>
+                </button>
+              ))}
 
-                  return (
-                    <g key={`flow-${node.id}`}>
-                      {/* Sub-line glow effect */}
-                      <path 
-                        d={`M ${x1} ${y1} L ${x2} ${y2}`} 
-                        stroke={isCurrentConnecting ? "url(#lineGradActive)" : "url(#lineGrad)"} 
-                        strokeWidth={isCurrentConnecting ? "4" : "2"}
-                        className={isCurrentConnecting ? "animate-pulse" : ""}
-                        fill="none" 
+              {!isLoading && workflows.length === 0 && (
+                <NxEmptyState
+                  title="No Workflows"
+                  description="Create a workflow to begin orchestration."
+                  icon={<GitMerge className="w-8 h-8 text-gray-500" />}
+                />
+              )}
+            </div>
+          </NxGlassCard>
+
+          <div className="bg-black/40 border border-white/10 rounded-lg relative overflow-x-auto overflow-y-hidden p-6 select-none bg-grid">
+            {nodes.length > 0 ? (
+              <div className="relative w-max min-w-full h-full flex items-center">
+                <div className="flex gap-16 pr-12 relative z-10 py-24">
+                  {nodes.map((node, index) => (
+                    <div key={node.id} className="relative">
+                      <NxWorkflowNode
+                        title={node.name}
+                        type={mapNodeType(node.type)}
+                        status={node.status}
+                        selected={node.status === 'running'}
                       />
-                      {/* Flow directional dot */}
-                      {isCurrentConnecting && (
-                        <circle r="4" fill="#00ffff">
-                          <animateMotion 
-                            path={`M ${x1} ${y1} L ${x2} ${y2}`} 
-                            dur="1.2s" 
-                            repeatCount="indefinite" 
-                          />
-                        </circle>
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-mono font-bold text-gray-500 uppercase">
+                        {node.type}
+                      </div>
+                      {index < nodes.length - 1 && (
+                        <div className="hidden md:block absolute left-[190px] top-1/2 w-16 h-px bg-nexus-blue/40" />
                       )}
-                    </g>
-                  );
-                })}
-              </svg>
-
-              {/* Render actual nodes */}
-              <div className="flex gap-20 pr-12 relative z-10 py-24">
-                {nodes.map((node, i) => (
-                  <div key={node.id} className="relative">
-                    <NxWorkflowNode 
-                      title={node.title}
-                      type={node.type}
-                      status={node.status}
-                      selected={activeStep === i}
-                    />
-                    
-                    {/* Position identifier */}
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-mono font-bold text-gray-500 uppercase">
-                      Node 0{i+1}
                     </div>
-
-                    {/* Delete node button */}
-                    {!isRunning && (
-                      <button 
-                        onClick={() => {
-                          const updated = nodes.filter(n => n.id !== node.id);
-                          saveToStorage(updated);
-                        }}
-                        className="absolute -bottom-6 left-1/2 -translate-x-1/2 p-1 rounded hover:bg-white/10 text-gray-500 hover:text-red-400 transition-all opacity-0 hover:opacity-100 focus:opacity-100 group-hover:opacity-100"
-                        title="Delete node"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <NxEmptyState
+                  title="Canvas is Empty"
+                  description="This workflow has no registered steps."
+                  icon={<GitMerge className="w-8 h-8 text-gray-500" />}
+                />
+              </div>
+            )}
+          </div>
 
+          <NxGlassCard className="p-4 bg-white/5 border-white/5">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <span className="text-sm font-semibold text-gray-100">Execution Tracer</span>
+              {execution?.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-success" />}
+              {execution?.status === 'failed' && <XCircle className="w-4 h-4 text-error" />}
+              {execution?.status === 'paused' && <PauseCircle className="w-4 h-4 text-amber-400" />}
             </div>
-          ) : (
-            <div className="h-full flex items-center justify-center">
-              <NxEmptyState 
-                title="Canvas is Empty" 
-                description="Populate nodes into the pipeline schema to run simulations."
-                icon={<GitMerge className="w-8 h-8 text-gray-500" />}
-                action={
-                  <NxActionButton variant="primary" size="sm" onClick={resetToDefault}>
-                    Populate Template Grid
-                  </NxActionButton>
-                }
-              />
-            </div>
-          )}
 
+            <div className="mt-3 text-xs font-mono text-gray-400 space-y-2 max-h-[360px] overflow-y-auto">
+              {execution ? (
+                <>
+                  <div>execution: {execution.id}</div>
+                  <div>status: {execution.status}</div>
+                  {(execution.step_logs ?? []).map(log => (
+                    <div key={`${log.step_id}-${log.status}`} className="rounded border border-white/10 bg-black/30 p-2">
+                      <div className="text-gray-200">{log.step_name}</div>
+                      <div>{log.status}{log.duration_ms ? ` / ${log.duration_ms}ms` : ''}</div>
+                      {log.error && <div className="text-error">{log.error}</div>}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div>No active execution.</div>
+              )}
+            </div>
+
+            {execution?.status === 'paused' && execution.runtime_state?.waiting_for?.type === 'approval' && (
+              <div className="flex gap-2 mt-4 border-t border-white/10 pt-4">
+                <NxActionButton size="sm" variant="primary" onClick={() => resumeExecution('approve')}>
+                  Approve
+                </NxActionButton>
+                <NxActionButton size="sm" variant="secondary" onClick={() => resumeExecution('deny')}>
+                  Deny
+                </NxActionButton>
+              </div>
+            )}
+          </NxGlassCard>
         </div>
 
-        {/* Info Legend Card */}
-        <NxGlassCard className="p-4 flex gap-6 items-center flex-wrap bg-white/5 border-white/5">
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="w-3 h-3 rounded bg-amber-400/20 border border-amber-400/40 block" />
-            <span className="text-gray-400 font-semibold uppercase">Trigger</span>
-            <span className="text-gray-500">— Inbound events</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="w-3 h-3 rounded bg-emerald-400/20 border border-emerald-400/40 block" />
-            <span className="text-gray-400 font-semibold uppercase">Agent</span>
-            <span className="text-gray-500">— Cognitive analytics</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="w-3 h-3 rounded bg-purple-400/20 border border-purple-400/40 block" />
-            <span className="text-gray-400 font-semibold uppercase">Condition</span>
-            <span className="text-gray-500">— Logic gates</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="w-3 h-3 rounded bg-blue-400/20 border border-blue-400/40 block" />
-            <span className="text-gray-400 font-semibold uppercase">Action</span>
-            <span className="text-gray-500">— Webhook pings</span>
-          </div>
-        </NxGlassCard>
-
-        {/* Add Node modal */}
-        <NxModal 
-          isOpen={isModalOpen} 
-          onClose={() => setIsModalOpen(false)}
-          title="Install Flow Node"
-        >
-          <form onSubmit={handleAddNode} className="flex flex-col gap-4">
+        <NxModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Create Workflow">
+          <form onSubmit={createWorkflow} className="flex flex-col gap-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Node Action Description</label>
-              <NxInput 
-                value={newNodeTitle}
-                onChange={e => setNewNodeTitle(e.target.value)}
-                placeholder="e.g. Publish slack alert notification..."
-              />
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Name</label>
+              <NxInput value={newName} onChange={event => setNewName(event.target.value)} placeholder="Daily approval workflow" />
             </div>
-
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Node Taxonomy Type</label>
-              <NxSelect 
-                value={newNodeType}
-                onChange={e => setNewNodeType(e.target.value as any)}
-              >
-                <option value="trigger">TRIGGER - Webhook or schedule launch</option>
-                <option value="agent">AGENT - Cognitive model evaluation</option>
-                <option value="condition">CONDITION - Value comparison routing gate</option>
-                <option value="action">ACTION - Enqueue third-party webhook push</option>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Trigger</label>
+              <NxSelect value={newTrigger} onChange={event => setNewTrigger(event.target.value)}>
+                <option value="manual">Manual</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="event">Event</option>
+                <option value="webhook">Webhook</option>
               </NxSelect>
             </div>
-
             <div className="flex md:justify-end gap-3 mt-4 border-t border-white/5 pt-4">
-              <NxActionButton 
-                type="button" 
-                variant="secondary" 
-                size="sm"
-                onClick={() => setIsModalOpen(false)}
-              >
+              <NxActionButton type="button" variant="secondary" size="sm" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </NxActionButton>
-              
-              <NxActionButton 
-                type="submit" 
-                variant="primary" 
-                size="sm"
-              >
-                Insert Node
+              <NxActionButton type="submit" variant="primary" size="sm">
+                Create
               </NxActionButton>
             </div>
           </form>
         </NxModal>
-
       </div>
     </AppLayout>
   );

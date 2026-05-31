@@ -58,4 +58,4 @@ export * from './NxMemoryMiniGraph';
 export * from './NxActivityHeatmap';
 export * from './NxLiveRegion';
 export * from './GlobalJobMonitor';
-
+export * from './NxTabs';

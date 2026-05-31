@@ -42,7 +42,10 @@ export default function MemoryPage() {
   const [newTagsString, setNewTagsString] = useState("");
 
   useEffect(() => {
-    hydrateMemories();
+    const loadMemories = async () => {
+      await hydrateMemories();
+    };
+    void loadMemories();
   }, [hydrateMemories]);
 
   const handleAddMemory = (e: React.FormEvent) => {

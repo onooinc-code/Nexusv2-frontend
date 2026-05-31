@@ -9,7 +9,7 @@ import { useGlobalStore } from '@/store';
 import { GlobalJobMonitor } from './GlobalJobMonitor';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import apiClient from '@/lib/api/client';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, getToken } from '@/lib/auth';
 import { Bell } from 'lucide-react';
 
 const BOOT_LOGS = [
@@ -68,10 +68,42 @@ function StatusBarContent({ className }: { className?: string }) {
     return match ? pageNameMap[match] : 'Nexus Workspace';
   }, [pathname]);
 
-  const backendStatus = useMemo<'online' | 'offline' | 'error'>(() => {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const backendStatus = useMemo<'online' | 'offline' | 'error' | 'unknown'>(() => {
+    if (!mounted) return 'unknown';
     if (statusError) return 'error';
-    return health.status === 'healthy' ? 'online' : 'offline';
-  }, [health.status, statusError]);
+    if (health.status === 'healthy') return 'online';
+    if (health.status === 'unknown') return 'unknown';
+    return 'offline';
+  }, [mounted, health.status, statusError]);
+
+  const reverbStatus = useMemo<'online' | 'offline' | 'error' | 'unknown' | 'connecting'>(() => {
+    if (!mounted) return 'unknown';
+    if (!connectionStatus) return 'unknown';
+    if (connectionStatus === 'connected') return 'online';
+    if (connectionStatus === 'connecting') return 'connecting';
+    if (connectionStatus === 'disconnected' || connectionStatus === 'unavailable') return 'offline';
+    return 'offline';
+  }, [mounted, connectionStatus]);
+
+  const queueStatus = useMemo<'online' | 'offline' | 'error' | 'unknown'>(() => {
+    if (!mounted) return 'unknown';
+    if (!taskStats) return 'unknown';
+    const pending = taskStats?.pending ?? 0;
+    const running = taskStats?.running ?? 0;
+    return (pending > 0 || running > 0) ? 'online' : 'offline';
+  }, [mounted, taskStats]);
+
+  const authStatus = useMemo<'online' | 'offline' | 'error' | 'unknown'>(() => {
+    if (!mounted) return 'unknown';
+    const token = getToken();
+    return token ? 'online' : 'offline';
+  }, [mounted]);
 
   const refreshStatus = async () => {
     try {
@@ -97,73 +129,97 @@ function StatusBarContent({ className }: { className?: string }) {
     }
   };
 
-  useEffect(() => {
-    if (!isAuthenticated()) return;
-    refreshStatus();
-    const interval = setInterval(refreshStatus, 20000);
-    return () => clearInterval(interval);
-  }, []);
+useEffect(() => {
+     let active = true;
+     
+     const load = async () => {
+       if (active) await refreshStatus();
+     };
+     
+     void load();
+     const interval = setInterval(() => {
+       if (active) void refreshStatus();
+     }, 30000);
+     return () => {
+       active = false;
+       clearInterval(interval);
+     };
+   }, []);
 
   useEffect(() => {
     if (!logsOpen) return;
     let active = true;
-    setLogsText('Loading system logs...');
-    apiClient
-      .get('/v1/logs/stats')
-      .then((res) => {
+
+    const loadLogs = async () => {
+      try {
+        if (active) setLogsText('Loading system logs...');
+        const res = await apiClient.get('/v1/logs/stats');
         if (!active) return;
         setLogsText(JSON.stringify(res.data?.data ?? res.data, null, 2));
-      })
-      .catch(() => {
+      } catch {
         if (!active) return;
         setLogsText('Unable to fetch logs.');
-      });
+      }
+    };
+
+    void loadLogs();
 
     return () => {
       active = false;
     };
   }, [logsOpen]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!pathname && !searchParams) return;
+    const progressRefSnapshot = progressRef.current;
+    const { timer, interval } = progressRefSnapshot;
+    if (timer) clearTimeout(timer);
+    if (interval) clearInterval(interval);
 
-    if (progressRef.current.timer) clearTimeout(progressRef.current.timer);
-    if (progressRef.current.interval) clearInterval(progressRef.current.interval);
+    // Only show loading animation if status is not already healthy
+    if (health.status !== 'healthy') {
+      const startProgress = () => {
+        let currentProgress = 15;
+        let logIndex = 0;
 
-    setNavLoading(true);
-    setProgress(15);
-    setLogText('Refreshing hub state...');
+        setNavLoading(true);
+        setProgress(15);
+        setLogText('Refreshing hub state...');
 
-    let currentProgress = 15;
-    let logIndex = 0;
+        const newInterval = setInterval(() => {
+          currentProgress += Math.random() * 10;
+          if (currentProgress > 92) currentProgress = 92;
+          setProgress(currentProgress);
+          logIndex += 1;
+          if (logIndex < NAV_LOGS.length - 1) {
+            setLogText(NAV_LOGS[logIndex]);
+          }
+        }, 160);
 
-    progressRef.current.interval = setInterval(() => {
-      currentProgress += Math.random() * 10;
-      if (currentProgress > 92) currentProgress = 92;
-      setProgress(currentProgress);
-      logIndex += 1;
-      if (logIndex < NAV_LOGS.length - 1) {
-        setLogText(NAV_LOGS[logIndex]);
-      }
-    }, 160);
+        const newTimer = setTimeout(() => {
+          clearInterval(newInterval);
+          setProgress(100);
+          setLogText(NAV_LOGS[NAV_LOGS.length - 1]);
 
-    progressRef.current.timer = setTimeout(() => {
-      clearInterval(progressRef.current.interval);
-      setProgress(100);
-      setLogText(NAV_LOGS[NAV_LOGS.length - 1]);
+          setTimeout(() => {
+            setNavLoading(false);
+            setProgress(0);
+            setLogText('System Normal');
+          }, 300);
+        }, 900 + Math.random() * 300);
 
-      setTimeout(() => {
-        setNavLoading(false);
-        setProgress(0);
-        setLogText('System Normal');
-      }, 300);
-    }, 900 + Math.random() * 300);
+        progressRefSnapshot.timer = newTimer;
+        progressRefSnapshot.interval = newInterval;
+      };
 
-    return () => {
-      if (progressRef.current.timer) clearTimeout(progressRef.current.timer);
-      if (progressRef.current.interval) clearInterval(progressRef.current.interval);
-    };
-  }, [pathname, searchParams]);
+      startProgress();
+
+      return () => {
+        if (progressRefSnapshot.timer) clearTimeout(progressRefSnapshot.timer);
+        if (progressRefSnapshot.interval) clearInterval(progressRefSnapshot.interval);
+      };
+    }
+  }, [pathname, searchParams, health.status]);
 
   return (
     <div className={cn('h-10 bg-surface-dark border-t border-white/10 flex items-center justify-between px-4 text-xs font-mono text-gray-400 shrink-0 relative overflow-hidden', className)}>
@@ -197,15 +253,15 @@ function StatusBarContent({ className }: { className?: string }) {
             <span className='text-[10px] text-gray-400'>Backend</span>
           </div>
           <div className='flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1'>
-            <NxConnectionDot status={connectionStatus === 'connected' ? 'online' : connectionStatus === 'connecting' ? 'connecting' : 'offline'} />
+            <NxConnectionDot status={reverbStatus} />
             <span className='text-[10px] text-gray-400'>Reverb</span>
           </div>
           <div className='flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1'>
-            <NxConnectionDot status={taskStats?.active_jobs > 0 ? 'online' : 'online'} />
+            <NxConnectionDot status={queueStatus} />
             <span className='text-[10px] text-gray-400'>Queue</span>
           </div>
           <div className='flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1'>
-            <NxConnectionDot status='online' />
+            <NxConnectionDot status={authStatus} />
             <span className='text-[10px] text-gray-400'>Auth</span>
           </div>
         </div>
@@ -249,9 +305,9 @@ function StatusBarContent({ className }: { className?: string }) {
             </div>
             <div className='rounded-2xl bg-black/70 p-4 border border-white/10'>
               <div className='text-[10px] text-gray-500 uppercase tracking-[0.25em] mb-2'>Queue Metrics</div>
-              <div className='text-sm font-semibold text-white'>{taskStats?.active_jobs ?? '—'} active</div>
-              <div className='mt-2 text-[11px] text-gray-400'>{taskStats?.queued_jobs ?? '—'} queued</div>
-              <div className='mt-1 text-[11px] text-gray-500'>{taskStats?.failed_jobs ?? '—'} failed</div>
+              <div className='text-sm font-semibold text-white'>{taskStats?.running ?? '—'} active</div>
+              <div className='mt-2 text-[11px] text-gray-400'>{taskStats?.pending ?? '—'} queued</div>
+              <div className='mt-1 text-[11px] text-gray-500'>{taskStats?.failed ?? '—'} failed</div>
             </div>
           </div>
           <div>

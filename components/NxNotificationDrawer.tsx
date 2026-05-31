@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NxDrawer } from '@/components/NxDrawer';
 import { NxGlassCard } from '@/components/NxGlassCard';
 import { NxActionButton } from '@/components/NxActionButton';
@@ -79,7 +79,7 @@ export default function NxNotificationDrawer() {
     });
     const [isSending, setIsSending] = useState(false);
 
-    const fetchLogs = async () => {
+    const fetchLogs = useCallback(async () => {
         setIsLoadingLogs(true);
         try {
             const params = new URLSearchParams();
@@ -95,9 +95,9 @@ export default function NxNotificationDrawer() {
         } finally {
             setIsLoadingLogs(false);
         }
-    };
+    }, [addNotification, filterChannel, filterStatus]);
 
-    const fetchTemplates = async () => {
+    const fetchTemplates = useCallback(async () => {
         setIsLoadingTemplates(true);
         try {
             const response = await apiClient.get('/v1/notifications/templates');
@@ -109,17 +109,19 @@ export default function NxNotificationDrawer() {
         } finally {
             setIsLoadingTemplates(false);
         }
-    };
+    }, [addNotification]);
 
     useEffect(() => {
-        if (isDrawerOpen) {
+        const load = async () => {
+            if (!isDrawerOpen) return;
             if (activeTab === 'logs') {
-                fetchLogs();
+                await fetchLogs();
             } else {
-                fetchTemplates();
+                await fetchTemplates();
             }
-        }
-    }, [isDrawerOpen, activeTab]);
+        };
+        void load();
+    }, [isDrawerOpen, activeTab, fetchLogs, fetchTemplates]);
 
     const handleRetry = async (logId: number) => {
         try {
