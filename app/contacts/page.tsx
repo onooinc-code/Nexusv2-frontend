@@ -11,6 +11,7 @@ import { NxActionButton } from '@/components/NxActionButton';
 import { NxTable, NxTableHeader, NxTableBody } from '@/components/NxTable';
 import { NxTableRow } from '@/components/NxTableRow';
 import { NxTableCell, NxTableHead } from '@/components/NxTableCell';
+import { ContactHubTopbarControls } from '@/components/ContactHubTopbarControls';
 import { useAppStore } from '@/store/store-provider';
 import { ContactCardSkeleton, GridCardSkeleton } from '@/components/SkeletonLoaders';
 import { Users, Search, Plus, User, Building, Mail, Phone, RefreshCw, LayoutGrid, List, Upload, Brain, Database, AlertTriangle } from 'lucide-react';
@@ -63,8 +64,6 @@ export default function ContactsPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [isLoading, setIsLoading] = useState(false);
-  const [stats, setStats] = useState<ContactHubStats | null>(null);
-  const [globalReplyMode, setGlobalReplyMode] = useState<ReplyMode>('manual');
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importContactId, setImportContactId] = useState('');
   const [importSource, setImportSource] = useState<'whatsapp' | 'facebook'>('whatsapp');
@@ -81,32 +80,10 @@ export default function ContactsPage() {
   const [newPhone, setNewPhone] = useState("");
   const [formError, setFormError] = useState("");
 
-  const loadHubControls = useCallback(async () => {
-    try {
-      const [statsResponse, modeResponse] = await Promise.all([
-        apiClient.get('/v1/contacts/stats'),
-        apiClient.get('/v1/contacts/reply-mode'),
-      ]);
-
-      const nextStats = (statsResponse.data as { data?: ContactHubStats }).data;
-      const nextMode = (modeResponse.data as { data?: { mode?: ReplyMode } }).data?.mode;
-
-      if (nextStats) {
-        setStats(nextStats);
-      }
-      if (nextMode) {
-        setGlobalReplyMode(nextMode);
-      }
-    } catch (error) {
-      logError('Failed to load ContactHub controls', error);
-      addNotification('warning', 'ContactHub controls could not be refreshed');
-    }
-  }, [addNotification]);
-
   const loadContacts = useCallback(async () => {
     setIsLoading(true);
     try {
-      await Promise.all([hydrateContacts(), loadHubControls()]);
+      await hydrateContacts();
     } catch (error) {
       logError('Failed to load contacts', error);
       addNotification('error', 'Failed to load contacts');
@@ -158,20 +135,6 @@ export default function ContactsPage() {
   const handleReload = () => {
     loadContacts();
     addJob?.("Flushing relation directory database");
-  };
-
-  const handleGlobalReplyMode = async (mode: ReplyMode) => {
-    const previous = globalReplyMode;
-    setGlobalReplyMode(mode);
-
-    try {
-      await apiClient.patch('/v1/contacts/reply-mode', { mode });
-      addNotification('success', `Global reply mode set to ${mode}`);
-    } catch (error) {
-      setGlobalReplyMode(previous);
-      logError('Failed to update global reply mode', error);
-      addNotification('error', 'Failed to update reply mode');
-    }
   };
 
   const buildImportPayload = () => ({
@@ -285,72 +248,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Operational Controls */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-            {[
-              ['Contacts', stats?.total_contacts ?? contacts.length],
-              ['Active', stats?.active_contacts ?? 0],
-              ['New Msg', stats?.new_imported_messages ?? 0],
-              ['AI Queue', stats?.pending_analysis_runs ?? 0],
-              ['Stale Memory', stats?.stale_memory_count ?? 0],
-              ['Conflicts', stats?.identity_conflict_count ?? 0],
-              ['Autopilot', stats?.autopilot_enabled_count ?? 0],
-              ['Failures', (stats?.failed_imports ?? 0) + (stats?.failed_analysis_runs ?? 0)],
-            ].map(([label, value]) => (
-              <NxGlassCard key={label} className="px-3 py-3">
-                <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
-                <div className="mt-1 text-xl font-semibold text-gray-100">{value}</div>
-              </NxGlassCard>
-            ))}
-          </div>
-
-          <NxGlassCard className="p-3 flex flex-col gap-3 min-w-[280px]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Global Reply Mode</div>
-              {globalReplyMode === 'autopilot' && (
-                <AlertTriangle className="w-4 h-4 text-amber-300" />
-              )}
-            </div>
-            <div className="grid grid-cols-3 gap-1 rounded-lg bg-black/20 p-1 border border-white/5">
-              {(['manual', 'copilot', 'autopilot'] as ReplyMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => handleGlobalReplyMode(mode)}
-                  className={`h-8 rounded-md text-xs font-medium capitalize transition-colors ${
-                    globalReplyMode === mode
-                      ? mode === 'autopilot'
-                        ? 'bg-amber-500/20 text-amber-100 border border-amber-400/30'
-                        : 'bg-nexus-blue/20 text-blue-100 border border-nexus-blue/30'
-                      : 'text-gray-400 hover:text-gray-100 hover:bg-white/5'
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <NxActionButton
-                type="button"
-                variant="secondary"
-                size="sm"
-                leftIcon={<Brain className="w-4 h-4" />}
-                onClick={() => addNotification('info', 'Batch analysis endpoint is ready for selected contacts')}
-              >
-                Analyze
-              </NxActionButton>
-              <NxActionButton
-                type="button"
-                variant="secondary"
-                size="sm"
-                leftIcon={<Database className="w-4 h-4" />}
-                onClick={() => addNotification('info', 'Memory maintenance runs are available from the ContactHub API')}
-              >
-                Maintain
-              </NxActionButton>
-            </div>
-          </NxGlassCard>
-        </div>
+        <ContactHubTopbarControls />
 
         {/* Filters Panel */}
         <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">

@@ -55,6 +55,7 @@ export default function SettingsPage() {
   const [maskedValues, setMaskedValues] = useState<Record<string, string>>({});
   const [isLoadingHealth, setIsLoadingHealth] = useState(false);
   const [isLoadingSeeds, setIsLoadingSeeds] = useState(false);
+  const [editingEncrypted, setEditingEncrypted] = useState<Record<string, boolean>>({});
 
   const loadSettings = async () => {
     setLoading(true);
@@ -140,6 +141,7 @@ export default function SettingsPage() {
     try {
       await apiClient.put('/settings/bulk', { settings: updates });
       setSuccessMsg('System settings updated successfully.');
+      setEditingEncrypted({});
       setTimeout(() => setSuccessMsg(''), 3000);
       await loadSettings();
     } catch (error: any) {
@@ -377,30 +379,58 @@ export default function SettingsPage() {
                           <div className='flex gap-2'>
                             {setting.is_encrypted ? (
                               <>
-                                <button
-                                  onClick={() => {
-                                    setShowMaskedCredentials((prev) => ({
-                                      ...prev,
-                                      [setting.key]: !prev[setting.key],
-                                    }));
-                                    if (!showMaskedCredentials[setting.key]) {
-                                      loadMaskedCredential(setting.key);
-                                    }
-                                  }}
-                                  className='flex items-center gap-1 text-xs px-2 py-1 rounded bg-yellow-500/10 text-yellow-200 hover:bg-yellow-500/20'
-                                >
-                                  {showMaskedCredentials[setting.key] ? (
-                                    <>
-                                      <EyeOff className='w-3 h-3' /> Hide
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Eye className='w-3 h-3' /> Show
-                                    </>
-                                  )}
-                                </button>
-                                {showMaskedCredentials[setting.key] && maskedValues[setting.key] && (
+                                <div className='flex gap-2 items-center'>
+                                  <button
+                                    onClick={() => {
+                                      setShowMaskedCredentials((prev) => ({
+                                        ...prev,
+                                        [setting.key]: !prev[setting.key],
+                                      }));
+                                      if (!showMaskedCredentials[setting.key]) {
+                                        loadMaskedCredential(setting.key);
+                                      }
+                                    }}
+                                    className='flex items-center gap-1 text-xs px-2 py-1 rounded bg-yellow-500/10 text-yellow-200 hover:bg-yellow-500/20'
+                                  >
+                                    {showMaskedCredentials[setting.key] ? (
+                                      <>
+                                        <EyeOff className='w-3 h-3' /> Hide
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Eye className='w-3 h-3' /> Show
+                                      </>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingEncrypted((prev) => ({
+                                        ...prev,
+                                        [setting.key]: !prev[setting.key],
+                                      }));
+                                      if (!editingEncrypted[setting.key]) {
+                                        handleValueChange(setting.key, '');
+                                      } else {
+                                        handleValueChange(setting.key, groupedSettings.integrations?.find(s => s.key === setting.key)?.value);
+                                      }
+                                    }}
+                                    className='flex items-center gap-1 text-xs px-2 py-1 rounded bg-nexus-blue/10 text-nexus-blue hover:bg-nexus-blue/20'
+                                  >
+                                    {editingEncrypted[setting.key] ? 'Cancel Edit' : 'Edit'}
+                                  </button>
+                                </div>
+                                {showMaskedCredentials[setting.key] && maskedValues[setting.key] && !editingEncrypted[setting.key] && (
                                   <div className='text-xs text-yellow-300'>{maskedValues[setting.key]}</div>
+                                )}
+                                {editingEncrypted[setting.key] && (
+                                  <div className='mt-2 w-full'>
+                                    <NxInput
+                                      type="password"
+                                      placeholder="Enter new credential..."
+                                      value={String(editedValues[setting.key] ?? '')}
+                                      onChange={(e) => handleValueChange(setting.key, e.target.value)}
+                                    />
+                                  </div>
                                 )}
                               </>
                             ) : (
@@ -609,8 +639,8 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Save Button (only for General tab) */}
-        {activeTab === 'general' && (
+        {/* Save Button */}
+        {(activeTab === 'general' || activeTab === 'integrations') && (
           <div className='flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-t border-white/5 pt-4'>
             <div className='text-sm text-gray-400'>
               Changes are stored to the backend settings registry and will be reflected across the Nexus workspace on save.

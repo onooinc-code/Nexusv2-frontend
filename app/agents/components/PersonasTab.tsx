@@ -14,6 +14,9 @@ export function PersonasTab() {
     name: '',
     description: '',
     system_prompt: '',
+    temperature: 0.7,
+    max_tokens: 2048,
+    reasoning_effort: 'medium',
   });
 
   const isLoading = loading['personas'] || false;
@@ -30,9 +33,12 @@ export function PersonasTab() {
       name: formData.name,
       description: formData.description,
       system_prompt: formData.system_prompt,
+      temperature: Number(formData.temperature),
+      max_tokens: Number(formData.max_tokens),
+      reasoning_effort: formData.reasoning_effort,
     });
     
-    setFormData({ name: '', description: '', system_prompt: '' });
+    setFormData({ name: '', description: '', system_prompt: '', temperature: 0.7, max_tokens: 2048, reasoning_effort: 'medium' });
     setIsCreating(false);
   };
 
@@ -86,6 +92,41 @@ export function PersonasTab() {
                   className="bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 focus:border-nexus-blue focus:outline-none transition-colors"
                   placeholder="e.g. Expert in Python architecture"
                 />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400 font-medium">Temperature</label>
+                <input 
+                  type="number" 
+                  step="0.1" min="0" max="2"
+                  value={formData.temperature}
+                  onChange={(e) => setFormData({...formData, temperature: Number(e.target.value)})}
+                  className="bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 focus:border-nexus-blue focus:outline-none transition-colors"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400 font-medium">Max Tokens</label>
+                <input 
+                  type="number" 
+                  step="1" min="1"
+                  value={formData.max_tokens}
+                  onChange={(e) => setFormData({...formData, max_tokens: Number(e.target.value)})}
+                  className="bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 focus:border-nexus-blue focus:outline-none transition-colors"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400 font-medium">Reasoning Effort</label>
+                <select
+                  value={formData.reasoning_effort}
+                  onChange={(e) => setFormData({...formData, reasoning_effort: e.target.value})}
+                  className="bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 focus:border-nexus-blue focus:outline-none transition-colors"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
               </div>
             </div>
             

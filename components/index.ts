@@ -59,3 +59,8 @@ export * from './NxActivityHeatmap';
 export * from './NxLiveRegion';
 export * from './GlobalJobMonitor';
 export * from './NxTabs';
+export * from './NxTaskModal';
+export * from './NxTaskExecutionLog';
+export * from './NxWorkflowCanvas';
+export * from './NxExecutionDebugger';
+export * from './NxApprovalGateModal';

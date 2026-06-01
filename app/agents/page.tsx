@@ -11,6 +11,8 @@ import { AgentsTab } from './components/AgentsTab';
 import { PersonasTab } from './components/PersonasTab';
 import { MCPServersTab } from './components/MCPServersTab';
 import { PlaygroundTab } from './components/PlaygroundTab';
+import { ToolsLibraryTab } from './components/ToolsLibraryTab';
+import { Wrench } from 'lucide-react';
 
 export default function AgentsPage() {
   const { hydrateAgents } = useGlobalStore();
@@ -23,6 +25,7 @@ export default function AgentsPage() {
   const tabs = [
     { id: 'agents', label: 'Agents', icon: <Cpu className="w-4 h-4" /> },
     { id: 'personas', label: 'Personas', icon: <Settings2 className="w-4 h-4" /> },
+    { id: 'tools', label: 'Tools', icon: <Wrench className="w-4 h-4" /> },
     { id: 'mcp-servers', label: 'MCP Servers', icon: <Network className="w-4 h-4" /> },
     { id: 'playground', label: 'Playground', icon: <Terminal className="w-4 h-4" /> },
   ];
@@ -72,9 +75,10 @@ export default function AgentsPage() {
               }} 
             />
           )}
-          {activeTab === 'personas' && <PersonasTab />}
-          {activeTab === 'mcp-servers' && <MCPServersTab />}
-          {activeTab === 'playground' && <PlaygroundTab />}
+          { activeTab === 'personas' && <PersonasTab /> }
+          { activeTab === 'tools' && <ToolsLibraryTab /> }
+          { activeTab === 'mcp-servers' && <MCPServersTab /> }
+          { activeTab === 'playground' && <PlaygroundTab /> }
         </div>
 
       </div>

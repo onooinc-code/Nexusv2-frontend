@@ -9,6 +9,21 @@ export interface NxConnectionDotProps {
 }
 
 export const NxConnectionDot = ({ status = 'online', className }: NxConnectionDotProps) => {
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    // Return a generic/neutral dot for SSR to avoid hydration mismatch
+    return (
+      <div className={cn("relative flex h-3 w-3", className)}>
+        <span className="relative inline-flex rounded-full h-3 w-3 border border-deep-space/50 bg-gray-500/50" />
+      </div>
+    );
+  }
+
   return (
     <div className={cn("relative flex h-3 w-3", className)}>
       {status === 'online' && (

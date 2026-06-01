@@ -9,8 +9,15 @@ import { NxInput } from '@/components/NxInput';
 import { NxDrawer } from '@/components/NxDrawer';
 import { NxMetricCard } from '@/components/NxMetricCard';
 import { useAppStore } from '@/store/store-provider';
-import { ArrowLeft, User, Mail, Phone, Building, Edit2, Trash2, ShieldAlert, FileText, Activity, Save, Plus, Loader2, BarChart3, Users, MessageSquare, Calendar, Link2, Settings, X, Check, Pin, Trash } from 'lucide-react';
+import { ArrowLeft, User, Mail, Phone, Building, Edit2, Trash2, ShieldAlert, FileText, Activity, Save, Plus, Loader2, BarChart3, Users, MessageSquare, Calendar, Link2, Settings, X, Check, Pin, Trash, Upload, Brain, Database, Shield, MessageCircle, ListChecks } from 'lucide-react';
 import Image from 'next/image';
+import { NxAiAnalysisModal } from '@/components/NxAiAnalysisModal';
+import { NxMemoryMaintenanceModal } from '@/components/NxMemoryMaintenanceModal';
+import { NxRulesViewer } from '@/components/NxRulesViewer';
+import { NxTopicsViewer } from '@/components/NxTopicsViewer';
+import { NxAuditViewer } from '@/components/NxAuditViewer';
+import { NxImportModal } from '@/components/NxImportModal';
+import { NxMessageViewer } from '@/components/NxMessageViewer';
 import type { TimelineEvent, ContactNote as ContactNoteType } from '@/types';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -105,9 +112,12 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const currentContact = useAppStore((state) => state.currentContact);
 
   const [contact, setContact] = useState<ContactData | null>(null);
-  const [activeTab, setActiveTab] = useState<'timeline' | 'notes' | 'analytics' | 'identifiers' | 'relationships' | 'preferences' | 'aliases'>('timeline');
+  const [activeTab, setActiveTab] = useState<'timeline' | 'messages' | 'analytics' | 'notes' | 'identifiers' | 'relationships' | 'preferences' | 'rules' | 'topics' | 'aliases' | 'audit'>('timeline');
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isAiAnalysisModalOpen, setIsAiAnalysisModalOpen] = useState(false);
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
   const [analytics, setAnalytics] = useState<ContactAnalytics | null>(null);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
 
@@ -143,6 +153,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [newAlias, setNewAlias] = useState({ alias_name: '', confidence: 1.0, created_context: '' });
   const [aliasError, setAliasError] = useState('');
 
+  // Per-contact reply mode override
+  type ReplyMode = 'manual' | 'copilot' | 'autopilot';
+  const [contactReplyMode, setContactReplyMode] = useState<ReplyMode | null>(null);
+  const [isLoadingReplyMode, setIsLoadingReplyMode] = useState(false);
+
   // Edit form state
   const [editForm, setEditForm] = useState<Partial<ContactData>>({});
 
@@ -152,10 +167,9 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
   const loadContact = useCallback(async () => {
     try {
-      await hydrateContacts();
-      // Fetch contact details from API
+      // Fetch only the single contact — no need to load the full list
       const response = await apiClient.get(`/v1/contacts/${resolvedParams.id}`);
-      const apiContact = response.data.data || response.data;
+      const apiContact = (response.data as { data?: any }).data || response.data;
       const contactData: ContactData = {
         id: apiContact.id.toString(),
         name: apiContact.name,
@@ -172,7 +186,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       addNotification('error', 'Failed to load contact');
       router.replace('/contacts');
     }
-  }, [resolvedParams.id, hydrateContacts, addNotification, router]);
+  }, [resolvedParams.id, addNotification, router]);
 
   useEffect(() => {
     const load = async () => {
@@ -264,6 +278,37 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
     }
   }, [contact, fetchContactTimeline]);
 
+  const loadContactReplyMode = useCallback(async () => {
+    if (!contact) return;
+    setIsLoadingReplyMode(true);
+    try {
+      const response = await apiClient.get(`/v1/contacts/${contact.id}/reply-mode`);
+      const mode = (response.data as { data?: { mode?: string } }).data?.mode ?? null;
+      setContactReplyMode(mode as ReplyMode | null);
+    } catch (error) {
+      logError('Failed to load contact reply mode', error);
+    } finally {
+      setIsLoadingReplyMode(false);
+    }
+  }, [contact]);
+
+  const handleContactReplyModeChange = async (mode: ReplyMode | null) => {
+    if (!contact) return;
+    try {
+      await apiClient.patch(`/v1/contacts/${contact.id}/reply-mode`, { mode });
+      setContactReplyMode(mode);
+      addNotification(
+        'success',
+        mode
+          ? `Reply mode for ${contact.name} set to ${mode}`
+          : `${contact.name} will now inherit the global reply mode`
+      );
+    } catch (error) {
+      logError('Failed to update contact reply mode', error);
+      addNotification('error', 'Failed to update reply mode for this contact.');
+    }
+  };
+
   const loadNotes = useCallback(async () => {
     if (!contact) return;
     setIsLoadingNotes(true);
@@ -302,10 +347,13 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
         case 'aliases':
           await loadAliases();
           break;
+        case 'rules':
+          await loadContactReplyMode();
+          break;
       }
     };
     void load();
-  }, [contact, activeTab, loadTimeline, loadAnalytics, loadNotes, loadIdentifiers, loadRelationships, loadPreferences, loadAliases]);
+  }, [contact, activeTab, loadTimeline, loadAnalytics, loadNotes, loadIdentifiers, loadRelationships, loadPreferences, loadAliases, loadContactReplyMode]);
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -548,11 +596,32 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                   <div className="flex items-center gap-2">
                     <NxActionButton
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setIsAiAnalysisModalOpen(true)}
+                    >
+                      <Brain className="w-4 h-4" /> Analyze
+                    </NxActionButton>
+                    <NxActionButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsImportModalOpen(true)}
+                    >
+                      <Upload className="w-4 h-4" /> Import
+                    </NxActionButton>
+                    <NxActionButton
                       variant="secondary"
                       size="sm"
                       onClick={() => setIsEditDrawerOpen(true)}
                     >
                       <Edit2 className="w-4 h-4" /> Edit
+                    </NxActionButton>
+                    <NxActionButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsMaintenanceModalOpen(true)}
+                    >
+                      <Database className="w-4 h-4" /> Maintain
                     </NxActionButton>
                     <NxActionButton
                       variant="ghost"
@@ -587,12 +656,16 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
           <div className="flex flex-wrap gap-2 border-b border-white/5">
             {[
               { value: 'timeline', label: 'Timeline', icon: <Activity className="w-4 h-4" /> },
+              { value: 'messages', label: 'Messages', icon: <MessageSquare className="w-4 h-4" /> },
               { value: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },
               { value: 'notes', label: 'Notes', icon: <FileText className="w-4 h-4" /> },
               { value: 'identifiers', label: 'Identifiers', icon: <Link2 className="w-4 h-4" /> },
               { value: 'relationships', label: 'Relationships', icon: <Users className="w-4 h-4" /> },
               { value: 'preferences', label: 'Preferences', icon: <Settings className="w-4 h-4" /> },
+              { value: 'rules', label: 'Rules', icon: <ListChecks className="w-4 h-4" /> },
+              { value: 'topics', label: 'Topics', icon: <MessageCircle className="w-4 h-4" /> },
               { value: 'aliases', label: 'Aliases', icon: <User className="w-4 h-4" /> },
+              { value: 'audit', label: 'Audit', icon: <Shield className="w-4 h-4" /> },
             ].map((tab) => (
               <button
                 key={tab.value}
@@ -606,6 +679,26 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
           {/* Tab Panes */}
           <div className="mt-4 space-y-4">
+            {activeTab === 'messages' && (
+              <NxMessageViewer 
+                contactId={parseInt(contact.id, 10)} 
+                contactName={contact.name} 
+                contactAvatar={contact.avatar || undefined} 
+              />
+            )}
+
+            {activeTab === 'rules' && (
+              <NxRulesViewer contactId={parseInt(contact.id, 10)} />
+            )}
+
+            {activeTab === 'topics' && (
+              <NxTopicsViewer contactId={parseInt(contact.id, 10)} />
+            )}
+
+            {activeTab === 'audit' && (
+              <NxAuditViewer contactId={parseInt(contact.id, 10)} contactName={contact.name} />
+            )}
+
             {activeTab === 'timeline' && (
               <NxGlassCard className="p-6">
                 <div className="flex justify-between items-center mb-6">
@@ -962,6 +1055,55 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               </NxGlassCard>
             )}
 
+            {activeTab === 'rules' && (
+              <div className="space-y-6">
+                {/* Per-Contact Reply Mode Override */}
+                <NxGlassCard className="p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <Settings className="w-4 h-4 text-nexus-blue" />
+                      Reply Mode Override
+                    </h3>
+                    {isLoadingReplyMode && <Loader2 className="w-4 h-4 animate-spin text-nexus-blue" />}
+                  </div>
+                  <p className="text-sm text-gray-400 mb-5">
+                    Override the global reply mode for this contact only.
+                    Set to <span className="text-nexus-blue font-mono">inherit</span> to use the hub-level setting.
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {([null, 'manual', 'copilot', 'autopilot'] as (ReplyMode | null)[]).map((mode) => (
+                      <button
+                        key={mode ?? 'inherit'}
+                        type="button"
+                        disabled={isLoadingReplyMode}
+                        onClick={() => handleContactReplyModeChange(mode)}
+                        className={`py-2 px-3 rounded-lg text-xs font-medium capitalize transition-colors border ${
+                          contactReplyMode === mode
+                            ? mode === 'autopilot'
+                              ? 'bg-amber-500/20 text-amber-100 border-amber-400/30'
+                              : 'bg-nexus-blue/20 text-blue-100 border-nexus-blue/30'
+                            : 'text-gray-400 border-white/10 hover:text-gray-100 hover:bg-white/5'
+                        }`}
+                      >
+                        {mode ?? 'inherit global'}
+                      </button>
+                    ))}
+                  </div>
+                </NxGlassCard>
+
+                {/* Reply Rules */}
+                {contact && <NxRulesViewer contactId={Number(contact.id)} />}
+              </div>
+            )}
+
+            {activeTab === 'topics' && contact && (
+              <NxTopicsViewer contactId={Number(contact.id)} />
+            )}
+
+            {activeTab === 'audit' && contact && (
+              <NxAuditViewer contactId={Number(contact.id)} contactName={contact.name} />
+            )}
+
             {activeTab === 'aliases' && (
               <NxGlassCard className="p-6 space-y-6">
                 <div className="flex justify-between items-center">
@@ -1100,6 +1242,23 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
           </div>
         )}
 
+        <NxImportModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          contactId={parseInt(contact.id, 10)}
+        />
+
+        <NxAiAnalysisModal
+          isOpen={isAiAnalysisModalOpen}
+          onClose={() => setIsAiAnalysisModalOpen(false)}
+          contactId={parseInt(contact.id, 10)}
+        />
+
+        <NxMemoryMaintenanceModal
+          isOpen={isMaintenanceModalOpen}
+          onClose={() => setIsMaintenanceModalOpen(false)}
+          contactId={parseInt(contact.id, 10)}
+        />
       </div>
     </AppLayout>
   );
